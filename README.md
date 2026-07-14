@@ -635,7 +635,7 @@ node_modules/
 ## ⚡ TL;DR — Three Commands
 
 ```bash
-git clone https://github.com/YOURNAME/YOURREPO.git && cd YOURREPO
+git clone https://github.com/migandhi/saasLiveStream.git && cd saasLiveStream
 chmod +x install.sh upgrade.sh
 sudo ./install.sh
 ```
