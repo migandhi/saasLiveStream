@@ -113,8 +113,8 @@ open the same ports there — cloud firewalls sit *in front of* the server.
 ### Option A — Interactive (asks 4 questions)
 
 ```bash
-git clone https://github.com/YOURNAME/YOURREPO.git
-cd YOURREPO
+git clone https://github.com/migandhi/saasLiveStream.git
+cd saasLiveStream
 chmod +x install.sh upgrade.sh
 sudo ./install.sh
 ```
