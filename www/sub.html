@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0a0a0a;color:#eee;margin:0;padding:24px}
+  .wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+  .card{background:#141414;border:1px solid #262626;border-radius:10px;padding:20px}
+  .top{display:flex;justify-content:space-between;align-items:center}
+  h1{font-size:20px;margin:0} h3{margin:0 0 14px;font-size:15px;color:#bbb}
+  .b{padding:8px 14px;border:0;border-radius:6px;cursor:pointer;color:#fff;font-size:13px;margin:2px}
+  .g{background:#2e7d32}.r{background:#c62828}.bl{background:#1565c0}.gr{background:#424242}
+  input,textarea{padding:8px;border-radius:6px;border:1px solid #333;background:#0d0d0d;color:#fff;font-size:14px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td,th{padding:7px 8px;border-bottom:1px solid #222;text-align:left} th{color:#777;font-weight:normal}
+  .pill{padding:2px 8px;border-radius:10px;font-size:12px}
+  .act{background:#2e7d32}.sus{background:#424242}.live{background:#c62828}
+  .muted{color:#888;font-size:13px}
+  textarea{width:100%;box-sizing:border-box;height:90px}
+</style></head><body>
+<div class="wrap">
+  <div class="top"><h1>Broadcaster Dashboard</h1>
+    <div>
+      <button class="b r" onclick="location='/studio.html'">🔴 Open Studio</button>
+      <button class="b gr" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location='/')">Logout</button>
+    </div></div>
+
+  <div class="card"><h3>Account</h3><div id="acct" class="muted">Loading…</div>
+    <p class="muted">Your viewers watch by logging in at <b id="watchUrl"></b> — no links to share, no tokens to leak.</p></div>
+
+  
+
+
+
+<div class="card"><h3>Book a Broadcast Slot</h3>
+    <div class="muted" id="quota" style="margin-bottom:10px"></div>
+    <input id="st" placeholder="Title" style="width:220px">
+    <input id="sd" type="datetime-local">
+    <input id="sm" type="number" value="60" style="width:70px" title="minutes"> min
+    <button class="b bl" onclick="addSched()">Book slot</button>
+    <span id="smsg" style="color:#e57373;font-size:13px"></span>
+    <h3 style="margin-top:16px">Calendar — grey rows are other broadcasters (slot taken)</h3>
+    <table style="margin-top:6px"><tbody id="schedTb"></tbody></table></div>
+
+
+  <div class="card"><h3>Viewer Accounts</h3>
+    <input id="nu" placeholder="username"><input id="np" placeholder="password">
+    <button class="b g" onclick="addUser()">Add user</button>
+    <button class="b bl" onclick="location='/api/sub/users.csv'">Export CSV</button>
+    <span id="umsg" class="muted"></span>
+    <table style="margin-top:12px"><thead><tr><th>Username</th><th>Status</th><th></th></tr></thead>
+      <tbody id="userTb"></tbody></table>
+    <h3 style="margin-top:18px">Import CSV (username,password per line)</h3>
+    <textarea id="csv" placeholder="ali,pass1234&#10;sara,pass5678"></textarea>
+    <button class="b g" onclick="importCsv()">Import</button> <span id="imsg" class="muted"></span></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify(b||{})}).then(r=>r.json());
+$('watchUrl').innerText=location.origin;
+
+async function loadMe(){
+  const r=await fetch('/api/sub/me'); if(r.status!==200){location='/';return;}
+  const m=await r.json();
+  $('acct').innerHTML=`<b>${m.username}</b> — status: <span class="pill ${m.active?'act':'sus'}">${m.active?'active':'inactive'}</span>
+   · expires: ${m.expires_at?new Date(m.expires_at*1000).toISOString().slice(0,10):'—'}
+   ${m.live?` · <span class="pill live">LIVE — ${m.viewers} watching</span>`:''}`;
+}
+async function loadUsers(){
+  const u=await (await fetch('/api/sub/users')).json();
+  $('userTb').innerHTML=u.map(x=>`<tr><td>${x.username}</td>
+   <td><span class="pill ${x.status==='active'?'act':'sus'}">${x.status}</span></td>
+   <td><button class="b gr" onclick="post('/api/sub/users/${x.id}/toggle').then(loadUsers)">${x.status==='active'?'Suspend':'Activate'}</button>
+   <button class="b r" onclick="if(confirm('Delete ${x.username}?'))post('/api/sub/users/${x.id}/delete').then(loadUsers)">Delete</button></td></tr>`).join('');
+}
+async function addUser(){
+  const d=await post('/api/sub/users',{username:$('nu').value,password:$('np').value});
+  $('umsg').innerText=d.error||'Added ✓'; if(d.ok){$('nu').value='';$('np').value='';loadUsers();}
+}
+async function importCsv(){
+  const d=await post('/api/sub/users/import',{csv:$('csv').value});
+  $('imsg').innerText=`Added ${d.added}. ${d.errors.length?'Errors: '+d.errors.join(' | '):''}`;
+  loadUsers();
+}
+
+async function loadSched(){
+  const me=await (await fetch('/api/sub/me')).json();
+  $('quota').innerText=`Bookings used: ${me.bookingsUsed}/${me.bookingsMax}`
+    +` · Max slot: ${me.maxSlotMinutes} min`
+    +(me.requireSchedule?' · Going live requires a booked slot.':'');
+  const s=await (await fetch('/api/sub/slots')).json();
+  $('schedTb').innerHTML=s.map(x=>`<tr style="${x.mine?'':'color:#666'}">
+   <td>${x.mine?'🟢 '+x.title:'⛔ Booked'}</td>
+   <td>${new Date(x.starts_at*1000).toLocaleString()}</td><td>${x.minutes} min</td>
+   <td>${x.mine?`<button class="b r" onclick="post('/api/sub/schedules/${x.id}/delete').then(loadSched)">✕</button>`:''}</td>
+  </tr>`).join('') || '<tr><td class="muted">Calendar is empty — all slots free</td></tr>';
+}
+async function addSched(){
+  const t=new Date($('sd').value).getTime()/1000;
+  const d=await post('/api/sub/schedules',{title:$('st').value,starts_at:t,minutes:$('sm').value});
+  $('smsg').innerText=d.error||''; if(d.ok){$('st').value='';loadSched();}
+}
+
+
+
+loadMe();loadUsers();loadSched();setInterval(loadMe,7000);
+</script></body></html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0a0a0a;color:#eee;margin:0;padding:24px}
+  .top{display:flex;justify-content:space-between;align-items:center;max-width:1100px;margin:0 auto 16px}
+  h1{font-size:20px;margin:0} h3{font-size:14px;color:#888;margin:0 0 12px}
+  .card{background:#141414;border:1px solid #262626;border-radius:10px;padding:16px;max-width:1100px;margin:0 auto 16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;font-size:13px;color:#aaa}
+  .grid label{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  table{width:100%;max-width:1100px;margin:0 auto;border-collapse:collapse;font-size:14px}
+  th,td{padding:9px 10px;border-bottom:1px solid #222;text-align:left}
+  th{color:#888;font-weight:normal}
+  .b{padding:5px 10px;border:0;border-radius:5px;cursor:pointer;font-size:12px;color:#fff;margin:2px}
+  .g{background:#2e7d32}.r{background:#c62828}.bl{background:#1565c0}.gr{background:#424242}
+  .pill{padding:2px 8px;border-radius:10px;font-size:12px}
+  .live{background:#c62828}.act{background:#2e7d32}.pen{background:#f9a825;color:#000}.sus{background:#424242}
+  input{padding:6px;border-radius:5px;border:1px solid #333;background:#111;color:#fff;width:64px}
+  #tot{font-size:14px;color:#4caf50}
+</style></head><body>
+<div class="top"><h1>Admin</h1>
+  <div><span id="tot"></span>
+  <button class="b gr" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location='/')">Logout</button></div></div>
+
+<div class="card"><h3>Capacity & Concurrency Controls (only you can change these)</h3>
+  <div class="grid">
+    <label>Max simultaneous streams <input id="maxConcurrentStreams" type="number"></label>
+    <label>Extra stream only if total viewers &lt; <input id="extraStreamViewerThreshold" type="number"></label>
+    <label>Max viewers per room <input id="maxViewersPerRoom" type="number"></label>
+    <label>Max total viewers (bandwidth budget) <input id="maxTotalViewers" type="number"></label>
+    <label>Require booked slot to go live (1/0) <input id="requireSchedule" type="number" min="0" max="1"></label>
+    <label>Max upcoming bookings per subscriber <input id="maxBookingsPerSub" type="number"></label>
+    <label>Max slot length (minutes) <input id="maxSlotMinutes" type="number"></label>
+    <label><button class="b bl" onclick="saveSettings()">Save settings</button> <span id="note"></span></label>
+  </div></div>
+
+<table><thead><tr>
+  <th>ID</th><th>Username</th><th>Contact</th><th>Status</th><th>Expires</th>
+  <th>Users</th><th>Stream</th><th>Actions</th>
+</tr></thead><tbody id="tb"></tbody></table>
+<script>
+const $=id=>document.getElementById(id);
+const KEYS=['maxConcurrentStreams','extraStreamViewerThreshold','maxViewersPerRoom',
+  'maxTotalViewers','requireSchedule','maxBookingsPerSub','maxSlotMinutes'];
+const days=()=>parseInt(prompt('How many days?','30'))||30;
+const api=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify(b||{})}).then(r=>r.json());
+
+async function load(){
+  const r=await fetch('/api/admin/subscribers');
+  if(r.status!==200){location='/';return;}
+  const d=await r.json();
+  $('tot').innerText=`Live now: ${d.totals.liveStreams} stream(s) · ${d.totals.totalViewers} viewer(s)  `;
+  for(const k of KEYS) if(document.activeElement!==$(k)) $(k).value=d.settings[k];
+  $('tb').innerHTML=d.subscribers.map(s=>{
+    const st=s.expired?'expired':s.status;
+    const cls=st==='active'?'act':st==='pending'?'pen':'sus';
+    return `<tr><td>${s.id}</td><td>${s.username}</td><td>${s.contact||''}</td>
+    <td><span class="pill ${cls}">${st}</span></td>
+    <td>${s.expires_at?new Date(s.expires_at*1000).toISOString().slice(0,10):'—'}</td>
+    <td>${s.users}</td>
+    <td>${s.live?`<span class="pill live">LIVE · ${s.viewers}</span>`:'offline'}</td>
+    <td>
+      ${s.status==='pending'?`<button class="b g" onclick="act(${s.id},'approve')">Approve</button>`:''}
+      <button class="b bl" onclick="act(${s.id},'renew')">Renew</button>
+      ${s.status!=='suspended'?`<button class="b r" onclick="act(${s.id},'suspend')">Suspend</button>`
+        :`<button class="b g" onclick="act(${s.id},'renew')">Reactivate</button>`}
+      ${s.live?`<button class="b r" onclick="api('/api/admin/kick/${s.id}').then(load)">Kick stream</button>`:''}
+      <button class="b gr" onclick="if(confirm('Delete ${s.username} and all their users?'))act(${s.id},'delete')">Delete</button>
+    </td></tr>`;}).join('');
+}
+async function act(id,a){
+  const b=(a==='approve'||a==='renew')?{days:days()}:{};
+  await api(`/api/admin/subscribers/${id}/${a}`,b); load();
+}
+async function saveSettings(){
+  const body={}; for(const k of KEYS) body[k]=$(k).value;
+  await api('/api/admin/settings',body);
+  $('note').innerText='Saved ✓'; setTimeout(()=>$('note').innerText='',1500);
+}
+load(); setInterval(load,5000);
+</script></body></html>

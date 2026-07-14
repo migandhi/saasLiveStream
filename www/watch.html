@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0a0a0a;color:#fff;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;padding:20px;box-sizing:border-box}
+  .player{max-width:1280px;width:100%;position:relative}
+  video{width:100%;background:#111;border-radius:8px;aspect-ratio:16/9;transition:opacity .4s}
+  #box{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.88);
+    padding:28px 44px;border-radius:8px;text-align:center;display:none;border:1px solid #333}
+  h2{margin:0 0 8px} p{margin:0;color:#ccc;line-height:1.5;white-space:pre-wrap}
+  #status{margin-top:14px;color:#888;font-size:14px}
+  #logout{position:fixed;top:14px;right:14px;background:#333;color:#ccc;border:0;
+    border-radius:5px;padding:7px 14px;cursor:pointer;font-size:13px}
+  .spinner{display:inline-block;width:20px;height:20px;border:3px solid rgba(255,255,255,.3);
+    border-radius:50%;border-top-color:#fff;animation:spin 1s linear infinite;margin-top:14px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style></head><body>
+<button id="logout" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location='/')">Logout</button>
+<div class="player">
+  <video id="v" autoplay controls playsinline></video>
+  <div id="box"><h2 id="t">Connecting…</h2><p id="x"></p><div id="sp" class="spinner" style="display:none"></div></div>
+</div>
+<div id="status">Checking…</div>
+<script>
+const $=id=>document.getElementById(id);
+let pc=null,timer=null;
+fetch('/api/me').then(r=>{if(r.status!==200)location='/';});
+
+function show(t,x,err=false,spin=false){$('v').style.opacity='.2';$('box').style.display='block';
+  $('t').innerText=t;$('t').style.color=err?'#e53935':'#2196F3';$('x').innerText=x;
+  $('sp').style.display=spin?'inline-block':'none';}
+function hide(){$('v').style.opacity='1';$('box').style.display='none';}
+function retry(sec){clearTimeout(timer);timer=setTimeout(connect,sec*1000);}
+
+async function connect(){
+  if(pc){pc.close();pc=null;}
+  let t;
+  try{
+    const r=await fetch('/api/stream/view-ticket',{method:'POST'});
+    if(r.status===401){location='/';return;}
+    t=await r.json();
+  }catch(e){show('Network issue','Retrying…',false,true);$('status').innerText='Retrying in 5s…';retry(5);return;}
+  if(t.error){show('Unavailable',t.error,true);$('status').innerText='Blocked';retry(15);return;}
+  if(!t.live){
+    const nxt=t.next?`\nNext broadcast: ${t.next.title} — ${new Date(t.next.starts_at*1000).toLocaleString()}`:'';
+    show('Waiting Room','The broadcast has not started yet.\nWe will connect automatically.'+nxt,false,true);
+    $('status').innerText='Retrying in 5s…';retry(5);return;
+  }
+  try{
+    $('status').innerText='Connecting…';
+    pc=new RTCPeerConnection();
+    pc.addTransceiver('video',{direction:'recvonly'});
+    pc.addTransceiver('audio',{direction:'recvonly'});
+    pc.ontrack=e=>{$('v').srcObject=e.streams[0];hide();
+      $('status').innerText='🟢 LIVE';$('status').style.color='#4caf50';};
+    pc.onconnectionstatechange=()=>{
+      if(['failed','disconnected','closed'].includes(pc.connectionState)){
+        show('Reconnecting…','',false,true);retry(3);}};
+    const offer=await pc.createOffer();await pc.setLocalDescription(offer);
+    await new Promise(r=>{if(pc.iceGatheringState==='complete')r();
+      else pc.addEventListener('icegatheringstatechange',()=>{if(pc.iceGatheringState==='complete')r();});});
+    const resp=await fetch(`/live/${t.room}/whep?token=${t.token}`,{method:'POST',
+      headers:{'Content-Type':'application/sdp'},body:pc.localDescription.sdp});
+    if(!resp.ok)throw new Error(resp.status);
+    await pc.setRemoteDescription({type:'answer',sdp:await resp.text()});
+  }catch(e){show('Waiting Room','Reconnecting…',false,true);retry(5);}
+}
+connect();
+</script></body></html>

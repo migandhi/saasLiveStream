@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Studio</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#121212;color:#fff;
+    display:flex;flex-direction:column;align-items:center;padding:30px 20px;margin:0}
+  .container{max-width:1100px;width:100%;display:flex;flex-direction:column;gap:16px}
+  .header{display:flex;justify-content:space-between;align-items:center}
+  h1{margin:0;font-size:20px}
+  video{width:100%;background:#000;border-radius:8px;aspect-ratio:16/9}
+  .controls{display:flex;gap:12px;justify-content:center}
+  button{padding:12px 24px;font-size:15px;font-weight:bold;border:0;border-radius:6px;cursor:pointer}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  #startBtn{background:#e53935;color:#fff}#stopBtn{background:#424242;color:#fff}
+  .gr{background:#333;color:#ccc;font-size:13px !important;padding:8px 14px !important;font-weight:normal !important}
+  #status{text-align:center;font-size:14px;color:#aaa}
+  #obs{font-size:13px;color:#888;background:#181818;border-radius:8px;padding:14px;word-break:break-all;display:none}
+</style></head><body>
+<div class="container">
+  <div class="header"><h1>Live Studio</h1>
+    <div><button class="gr" onclick="obsLink()">OBS link</button>
+    <button class="gr" onclick="location='/sub.html'">← Dashboard</button></div></div>
+  <video id="localVideo" autoplay muted playsinline></video>
+  <div class="controls">
+    <button id="startBtn" onclick="startBroadcast()">Go Live</button>
+    <button id="stopBtn" onclick="stopBroadcast()" disabled>Stop</button></div>
+  <div id="status">Camera offline. Click Go Live to begin.</div>
+  <div id="obs"></div>
+</div>
+<script>
+let pc=null,localStream=null,resourceUrl=null;
+const $=id=>document.getElementById(id);
+fetch('/api/sub/me').then(r=>{if(r.status!==200)location='/';});
+
+async function ticket(ttl){
+  const r=await fetch('/api/stream/pub-ticket',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({ttl:ttl||20})});
+  return r.json();
+}
+async function obsLink(){
+  const t=await ticket(300);
+  if(t.error){alert(t.error);return;}
+  $('obs').style.display='block';
+  $('obs').innerHTML=`<b>OBS → Settings → Stream → Service: WHIP</b><br>
+    Server: ${location.origin}/live/${t.room}/whip<br>
+    Bearer Token: ${t.token}<br>
+    <i>Valid 5 minutes, single use. Start streaming in OBS before it expires.</i>`;
+}
+async function startBroadcast(){
+  const t=await ticket(20);
+  if(t.error){$('status').innerText=t.error;$('status').style.color='#e53935';return;}
+  try{
+    $('status').innerText='Requesting camera…';
+    localStream=await navigator.mediaDevices.getUserMedia({
+      video:{width:{ideal:1280,max:1280},height:{ideal:720,max:720},frameRate:{ideal:24,max:30}},audio:true});
+    $('localVideo').srcObject=localStream;
+    $('startBtn').disabled=true;
+    pc=new RTCPeerConnection();
+    localStream.getTracks().forEach(tr=>{
+      const s=pc.addTrack(tr,localStream);
+      if(tr.kind==='video'){const p=s.getParameters();
+        if(!p.encodings)p.encodings=[{}];p.encodings[0].maxBitrate=2500000;s.setParameters(p);}
+    });
+    const offer=await pc.createOffer();await pc.setLocalDescription(offer);
+    await new Promise(r=>{if(pc.iceGatheringState==='complete')r();
+      else pc.addEventListener('icegatheringstatechange',()=>{if(pc.iceGatheringState==='complete')r();});});
+    const resp=await fetch(`/live/${t.room}/whip?token=${t.token}`,{method:'POST',
+      headers:{'Content-Type':'application/sdp'},body:pc.localDescription.sdp});
+    if(!resp.ok)throw new Error('Server rejected: '+resp.status);
+    resourceUrl=resp.headers.get('Location');
+    await pc.setRemoteDescription({type:'answer',sdp:await resp.text()});
+    $('status').innerText='🟢 YOU ARE LIVE';$('status').style.color='#4caf50';
+    $('stopBtn').disabled=false;
+  }catch(e){$('status').innerText='Failed: '+e.message;$('status').style.color='#e53935';stopBroadcast(true);}
+}
+async function stopBroadcast(isError=false){
+  if(pc){pc.close();pc=null;}
+  if(localStream){localStream.getTracks().forEach(t=>t.stop());$('localVideo').srcObject=null;localStream=null;}
+  if(resourceUrl&&!isError){try{await fetch(resourceUrl.startsWith('http')?resourceUrl:location.origin+resourceUrl,{method:'DELETE'});}catch(e){}}
+  $('startBtn').disabled=false;$('stopBtn').disabled=true;
+  if(!isError){$('status').innerText='Stream ended.';$('status').style.color='#aaa';}
+}
+</script></body></html>
