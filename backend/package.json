@@ -1,0 +1,8 @@
+{
+  "name": "saas-backend",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.19.2",
+    "better-sqlite3": "^11.3.0"
+  }
+}
