@@ -1,0 +1,32 @@
+version: "3.8"
+services:
+caddy:
+image: caddy:2-alpine
+restart: unless-stopped
+network_mode: host
+volumes:
+- ./Caddyfile:/etc/caddy/Caddyfile:ro
+- ./www:/srv/www:ro
+- caddy_data:/data
+logging: { driver: "json-file", options: { max-size: "10m", max-file: "3" } }
+depends_on: [backend, mediamtx]
+mediamtx:
+image: bluenviron/mediamtx:1.9.3
+restart: unless-stopped
+network_mode: host
+volumes:
+- ./mediamtx.yml:/mediamtx.yml:ro
+logging: { driver: "json-file", options: { max-size: "10m", max-file: "3" } }
+backend:
+build: ./backend
+restart: unless-stopped
+network_mode: host
+environment:
+- NODE_ENV=production
+- ADMIN_USER=${ADMIN_USER:-admin}
+- ADMIN_PASS=${ADMIN_PASS:?Set ADMIN_PASS in .env}
+volumes:
+- ./backend/data:/app/data
+logging: { driver: "json-file", options: { max-size: "10m", max-file: "3" } }
+volumes:
+caddy_data:
